@@ -1,0 +1,16 @@
+{
+  "name": "attestation-test",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --env-file=.env --import=tsx test-attestation.ts",
+    "bulk": "node --env-file=.env --import=tsx bulk-test.ts",
+    "bulk:20": "ENTITY_COUNT=20 node --env-file=.env --import=tsx bulk-test.ts",
+    "bulk:100": "ENTITY_COUNT=100 node --env-file=.env --import=tsx bulk-test.ts"
+  },
+  "dependencies": {
+    "@arke-institute/sdk": "^2.3.6",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
