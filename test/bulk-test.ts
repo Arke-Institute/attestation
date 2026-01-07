@@ -24,12 +24,16 @@ async function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function getWorkerHealth() {
+interface WorkerHealth {
+  chain: { seq: number; head_tx: string | null };
+  queue: { pending: number; processing: number; failed: number; total: number };
+  config: { batch_size: number };
+  last_batch: { processed: number; succeeded: number; failed: number; duration: number } | null;
+}
+
+async function getWorkerHealth(): Promise<WorkerHealth> {
   const res = await fetch(WORKER_URL);
-  return res.json() as Promise<{
-    chain: { seq: number; head_tx: string | null };
-    queue: { pending: number; uploading: number; failed: number };
-  }>;
+  return res.json() as Promise<WorkerHealth>;
 }
 
 async function getOrCreateCollection() {
@@ -93,7 +97,8 @@ async function monitorQueue(expectedCount: number) {
   const startSeq = startHealth.chain.seq;
 
   console.log(`   Start seq: ${startSeq}`);
-  console.log(`   Start queue: pending=${startHealth.queue.pending}, uploading=${startHealth.queue.uploading}\n`);
+  console.log(`   Start queue: pending=${startHealth.queue.pending}, processing=${startHealth.queue.processing}, total=${startHealth.queue.total}`);
+  console.log(`   Batch size: ${startHealth.config.batch_size}\n`);
 
   let lastSeq = startSeq;
   let stableCount = 0;
@@ -108,12 +113,12 @@ async function monitorQueue(expectedCount: number) {
 
     console.log(
       `   [${elapsed}s] seq=${health.chain.seq} (+${processed}) | ` +
-      `pending=${health.queue.pending} uploading=${health.queue.uploading} | ` +
+      `queue: ${health.queue.total} (pending=${health.queue.pending}, processing=${health.queue.processing}) | ` +
       `rate=${rate}/sec`
     );
 
     // Check if queue is drained
-    if (health.queue.pending === 0 && health.queue.uploading === 0) {
+    if (health.queue.total === 0) {
       if (health.chain.seq === lastSeq) {
         stableCount++;
         if (stableCount >= 2) {
@@ -161,7 +166,7 @@ async function main() {
   const healthBefore = await getWorkerHealth();
   console.log(`\nInitial state:`);
   console.log(`   Chain seq: ${healthBefore.chain.seq}`);
-  console.log(`   Queue: pending=${healthBefore.queue.pending}`);
+  console.log(`   Queue: total=${healthBefore.queue.total} (pending=${healthBefore.queue.pending}, processing=${healthBefore.queue.processing})`);
 
   // Get or create collection
   const collection = await getOrCreateCollection();
@@ -173,7 +178,7 @@ async function main() {
   // Check queue after creation
   await sleep(2000);
   const healthAfterCreate = await getWorkerHealth();
-  console.log(`Queue after creation: pending=${healthAfterCreate.queue.pending}`);
+  console.log(`Queue after creation: total=${healthAfterCreate.queue.total} (pending=${healthAfterCreate.queue.pending})`);
 
   // Monitor until drained
   await monitorQueue(entities.length);

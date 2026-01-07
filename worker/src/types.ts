@@ -1,0 +1,96 @@
+/**
+ * Shared types for the attestation worker
+ */
+
+export interface Env {
+  D1_PROD: D1Database;
+  R2_MANIFESTS: R2Bucket;
+  ATTESTATION_INDEX: KVNamespace;
+  ARWEAVE_WALLET: string;
+}
+
+export interface ChainHead {
+  tx_id: string | null;
+  cid: string | null;
+  seq: number;
+}
+
+export interface QueueItem {
+  id: number;
+  entity_id: string;
+  cid: string;
+  op: string;
+  vis: string;
+  ts: string;
+  created_at: string;
+  status: string;
+  retry_count: number;
+  error_message: string | null;
+}
+
+export interface Manifest {
+  ver: number;
+  [key: string]: unknown;
+}
+
+export interface AttestationPayload {
+  attestation: {
+    pi: string;
+    ver: number;
+    cid: string;
+    op: string;
+    vis: string;
+    ts: number;
+    prev_tx: string | null;
+    prev_cid: string | null;
+    seq: number;
+  };
+  manifest: Manifest;
+}
+
+export interface ProcessResult {
+  processed: number;
+  succeeded: number;
+  failed: number;
+  duration: number;
+}
+
+// =============================================================================
+// Parallel Pre-Signing Types
+// =============================================================================
+
+/**
+ * A transaction that has been signed but not yet uploaded
+ */
+export interface PendingTransaction {
+  queueItem: QueueItem;
+  manifest: Manifest;
+  payload: AttestationPayload;
+  signedTx: unknown; // Arweave Transaction type
+  txId: string;
+  seq: number;
+}
+
+/**
+ * Result of a single upload attempt
+ */
+export interface UploadResult {
+  txId: string;
+  success: boolean;
+  error?: Error;
+}
+
+/**
+ * Result of processing a batch
+ */
+export interface BatchResult {
+  succeeded: PendingTransaction[];
+  failed: { item: PendingTransaction; error: Error }[];
+  newHead: { txId: string; cid: string; seq: number } | null;
+  stats: {
+    fetchTimeMs: number;
+    signTimeMs: number;
+    uploadTimeMs: number;
+    finalizeTimeMs: number;
+  };
+}
