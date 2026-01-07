@@ -1,0 +1,39 @@
+{
+  "name": "arke-attestation",
+  "main": "src/index.js",
+  "compatibility_date": "2024-09-23",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // D1 database (PROD only - test entities are not attested)
+  "d1_databases": [
+    {
+      "binding": "D1_PROD",
+      "database_name": "arke-prod",
+      "database_id": "ca15318b-69fe-45d7-a1d4-e20aebe2b1f5"
+    }
+  ],
+
+  // KV namespace for attestation index
+  "kv_namespaces": [
+    {
+      "binding": "ATTESTATION_INDEX",
+      "id": "8637de60b50f4572b1ba7f312479a4be"
+    }
+  ],
+
+  // R2 for direct manifest fetching (PROD only)
+  "r2_buckets": [
+    {
+      "binding": "R2_MANIFESTS",
+      "bucket_name": "arke-manifests-prod"
+    }
+  ],
+
+  // Scheduled triggers
+  "triggers": {
+    "crons": [
+      "* * * * *",
+      "0 4 * * *"
+    ]
+  }
+}

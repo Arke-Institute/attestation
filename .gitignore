@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Secrets - NEVER COMMIT
+wallet.json
+*.wallet.json
+.env
+.env.*
+.dev.vars
+*.pem
+*.key
+
+# Wrangler
+.wrangler/
+
+# Build output
+dist/
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp

@@ -1,0 +1,17 @@
+{
+  "name": "attestation",
+  "version": "1.0.0",
+  "description": "Arweave attestation uploads",
+  "type": "module",
+  "scripts": {
+    "generate-wallet": "node scripts/generate-wallet.js",
+    "check-balance": "node scripts/check-balance.js",
+    "upload": "node scripts/upload.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "arweave": "^1.15.7"
+  }
+}
