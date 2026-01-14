@@ -7,6 +7,7 @@ export interface Env {
   R2_MANIFESTS: R2Bucket;
   ATTESTATION_INDEX: KVNamespace;
   ARWEAVE_WALLET: string;
+  ADMIN_SECRET?: string; // Optional secret for admin endpoints
 }
 
 export interface ChainHead {

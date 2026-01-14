@@ -24,6 +24,21 @@ import { runBundleTest } from "./test/bundleTest";
 // Track last batch result for health endpoint
 let lastBatch: (ProcessResult & { timestamp: string }) | null = null;
 
+/**
+ * Check if request has valid admin authorization
+ * Expects: Authorization: Bearer <ADMIN_SECRET>
+ */
+function isAuthorized(request: Request, env: Env): boolean {
+  // If no secret configured, allow all (for backwards compatibility)
+  if (!env.ADMIN_SECRET) return true;
+
+  const authHeader = request.headers.get("Authorization");
+  if (!authHeader) return false;
+
+  const [scheme, token] = authHeader.split(" ");
+  return scheme === "Bearer" && token === env.ADMIN_SECRET;
+}
+
 export default {
   /**
    * HTTP handler - minimal endpoints for health/debugging
@@ -31,7 +46,7 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    // Health check with queue stats
+    // Health check with queue stats (public)
     if (url.pathname === "/") {
       const stats = await getQueueStats(env);
       const head = await getChainHead(env);
@@ -52,16 +67,22 @@ export default {
       });
     }
 
-    // Manual trigger (for testing)
+    // Manual trigger (admin only)
     if (url.pathname === "/trigger" && request.method === "POST") {
+      if (!isAuthorized(request, env)) {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
       const result = await processQueue(env);
       lastBatch = { ...result, timestamp: new Date().toISOString() };
       return Response.json(result);
     }
 
     // Bundle test endpoint - uploads to real Arweave but uses isolated test chain
-    // Usage: POST /test-bundle?count=10
+    // Usage: POST /test-bundle?count=10 (admin only)
     if (url.pathname === "/test-bundle" && request.method === "POST") {
+      if (!isAuthorized(request, env)) {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
       const count = parseInt(url.searchParams.get("count") || "5", 10);
       if (count < 1 || count > 100) {
         return Response.json({ error: "count must be between 1 and 100" }, { status: 400 });
