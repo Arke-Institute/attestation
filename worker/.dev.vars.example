@@ -1,0 +1,10 @@
+# Local development secrets for Cloudflare Workers
+# Copy this file to .dev.vars and fill in the values
+# NEVER commit .dev.vars to git
+
+# Arweave wallet JWK (JSON string, single line)
+ARWEAVE_WALLET={"kty":"RSA","n":"...","e":"...","d":"..."}
+
+# Admin secret for protected endpoints (/trigger, /test-bundle)
+# Generate with: openssl rand -base64 32
+ADMIN_SECRET=your-secret-here

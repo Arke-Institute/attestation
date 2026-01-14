@@ -26,6 +26,28 @@ npm run upload           # Upload demo data (or pass file path)
 npm run upload <file>    # Upload specific file to Arweave
 ```
 
+## Local Development Setup
+
+### Secrets (.dev.vars)
+Copy the example file and fill in values:
+```bash
+cd worker
+cp .dev.vars.example .dev.vars
+```
+
+Required secrets in `.dev.vars`:
+- `ARWEAVE_WALLET` - JWK wallet JSON (single line)
+- `ADMIN_SECRET` - Bearer token for admin endpoints (generate with `openssl rand -base64 32`)
+
+**Never commit `.dev.vars`** - it's gitignored.
+
+### Production Secrets
+Set via wrangler:
+```bash
+wrangler secret put ARWEAVE_WALLET  # Paste JWK JSON
+wrangler secret put ADMIN_SECRET    # Paste generated secret
+```
+
 ## Architecture
 
 ### Worker Flow
@@ -40,14 +62,14 @@ npm run upload <file>    # Upload specific file to Arweave
 - `R2_MANIFESTS` - R2 bucket containing entity manifests
 - `ATTESTATION_INDEX` - KV namespace for attestation TX lookup
 - `ARWEAVE_WALLET` - Secret containing JWK wallet JSON
+- `ADMIN_SECRET` - Secret for admin endpoint authentication
 
 ### Worker Endpoints
-- `GET /` - Health check with queue stats
-- `POST /trigger` - Manual queue processing trigger
-- `POST /test?batch=N` - Test processing with metrics (synchronous)
-- `POST /seed?count=N` - Seed test data for performance testing
-- `POST /test-upload?count=N` - Raw Arweave upload performance test
-- `POST /retry` - Manually trigger retry of failed items
+- `GET /` - Health check with queue stats (public)
+- `POST /trigger` - Manual queue processing (requires auth)
+- `POST /test-bundle?count=N` - Bundle test with isolated chain (requires auth)
+
+**Authentication**: Admin endpoints require `Authorization: Bearer <ADMIN_SECRET>` header.
 
 ### Queue States
 - `pending` - Awaiting processing
