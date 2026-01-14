@@ -99,9 +99,12 @@ async function processWithBundling(
 
   // Check time threshold - use oldest item from the batch we fetched
   // (can't use getOldestPendingTimestamp because items are already marked 'signing')
-  // SQLite stores UTC timestamps without 'Z' suffix, so add it for correct parsing
+  // Handle both ISO format (with Z) and SQLite format (without Z)
   const oldestItemTimestamp = Math.min(
-    ...pending.map((p) => new Date(p.queueItem.created_at + "Z").getTime())
+    ...pending.map((p) => {
+      const ts = p.queueItem.created_at;
+      return new Date(ts.endsWith("Z") ? ts : ts + "Z").getTime();
+    })
   );
   const timeWaiting = Date.now() - oldestItemTimestamp;
   const timeThresholdMet = timeWaiting >= CONFIG.BUNDLE_TIME_THRESHOLD_MS;
