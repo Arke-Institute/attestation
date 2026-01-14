@@ -106,6 +106,25 @@ export async function deleteFromQueue(env: Env, itemId: number): Promise<void> {
 }
 
 /**
+ * Get the timestamp of the oldest pending item
+ * Used to check if time threshold for bundling is met
+ */
+export async function getOldestPendingTimestamp(env: Env): Promise<number | null> {
+  const result = await env.D1_PROD
+    .prepare(
+      `SELECT created_at FROM attestation_queue
+       WHERE status = 'pending'
+       ORDER BY created_at ASC
+       LIMIT 1`
+    )
+    .first<{ created_at: string }>();
+
+  if (!result) return null;
+
+  return new Date(result.created_at).getTime();
+}
+
+/**
  * Queue statistics with detailed breakdown
  */
 export interface QueueStats {

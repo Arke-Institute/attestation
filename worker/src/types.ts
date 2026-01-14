@@ -55,12 +55,41 @@ export interface ProcessResult {
   duration: number;
 }
 
+/**
+ * Record stored in KV for attestation lookup
+ * The bundled field indicates this was uploaded via ANS-104 bundling.
+ */
+export interface AttestationRecord {
+  cid: string;
+  tx: string; // DataItem ID (works same as L1 TX ID)
+  seq: number;
+  ts: number;
+  bundled?: boolean; // true = self-bundled DataItem
+}
+
 // =============================================================================
-// Parallel Pre-Signing Types
+// Bundling Types
+// =============================================================================
+
+/**
+ * A signed DataItem pending bundle upload
+ */
+export interface PendingDataItem {
+  queueItem: QueueItem;
+  manifest: Manifest;
+  payload: AttestationPayload;
+  dataItem: unknown; // DataItem from bundle module
+  txId: string; // DataItem ID (known after signing)
+  seq: number;
+}
+
+// =============================================================================
+// Legacy Types (kept for fallback)
 // =============================================================================
 
 /**
  * A transaction that has been signed but not yet uploaded
+ * @deprecated Use PendingDataItem for bundled uploads
  */
 export interface PendingTransaction {
   queueItem: QueueItem;

@@ -19,6 +19,7 @@ import { getChainHead } from "./chain/state";
 import { getQueueStats } from "./queue/fetch";
 import { retryFailedItems, cleanupStuckItems } from "./queue/cleanup";
 import { processQueue } from "./process";
+import { runBundleTest } from "./test/bundleTest";
 
 // Track last batch result for health endpoint
 let lastBatch: (ProcessResult & { timestamp: string }) | null = null;
@@ -55,6 +56,18 @@ export default {
     if (url.pathname === "/trigger" && request.method === "POST") {
       const result = await processQueue(env);
       lastBatch = { ...result, timestamp: new Date().toISOString() };
+      return Response.json(result);
+    }
+
+    // Bundle test endpoint - uploads to real Arweave but uses isolated test chain
+    // Usage: POST /test-bundle?count=10
+    if (url.pathname === "/test-bundle" && request.method === "POST") {
+      const count = parseInt(url.searchParams.get("count") || "5", 10);
+      if (count < 1 || count > 100) {
+        return Response.json({ error: "count must be between 1 and 100" }, { status: 400 });
+      }
+
+      const result = await runBundleTest(env, count);
       return Response.json(result);
     }
 

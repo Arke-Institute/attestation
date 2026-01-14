@@ -20,7 +20,9 @@ export async function uploadParallel(
   const uploads = pending.map(async (p) => {
     try {
       // The signedTx is the actual Arweave transaction object
-      const response = await arweave.transactions.post(p.signedTx);
+      const response = await arweave.transactions.post(
+        p.signedTx as Parameters<typeof arweave.transactions.post>[0]
+      );
 
       if (response.status !== 200) {
         throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
