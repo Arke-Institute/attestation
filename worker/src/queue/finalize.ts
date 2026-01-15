@@ -126,12 +126,17 @@ export async function finalizeBatch(
   await Promise.all(kvWrites);
 
   // Batch delete succeeded items from queue
+  // Chunk to stay under D1's SQL parameter limit
   if (d1Deletes.length > 0) {
-    const placeholders = d1Deletes.map(() => "?").join(",");
-    await env.D1_PROD
-      .prepare(`DELETE FROM attestation_queue WHERE id IN (${placeholders})`)
-      .bind(...d1Deletes)
-      .run();
+    const CHUNK_SIZE = 50;
+    for (let i = 0; i < d1Deletes.length; i += CHUNK_SIZE) {
+      const chunk = d1Deletes.slice(i, i + CHUNK_SIZE);
+      const placeholders = chunk.map(() => "?").join(",");
+      await env.D1_PROD
+        .prepare(`DELETE FROM attestation_queue WHERE id IN (${placeholders})`)
+        .bind(...chunk)
+        .run();
+    }
   }
 
   // Batch re-queue failed items

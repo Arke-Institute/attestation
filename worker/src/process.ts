@@ -245,13 +245,16 @@ async function revertToSigningState(env: Env, pending: PendingDataItem[]): Promi
   const now = new Date().toISOString();
   const ids = pending.map((p) => p.queueItem.id);
 
-  if (ids.length > 0) {
-    const placeholders = ids.map(() => "?").join(",");
+  // Chunk to stay under D1's SQL parameter limit
+  const CHUNK_SIZE = 50;
+  for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+    const chunk = ids.slice(i, i + CHUNK_SIZE);
+    const placeholders = chunk.map(() => "?").join(",");
     await env.D1_PROD
       .prepare(
         `UPDATE attestation_queue SET status = 'pending', updated_at = ? WHERE id IN (${placeholders})`
       )
-      .bind(now, ...ids)
+      .bind(now, ...chunk)
       .run();
   }
 }

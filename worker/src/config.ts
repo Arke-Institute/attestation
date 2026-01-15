@@ -5,7 +5,7 @@
 export const CONFIG = {
   // Batch size - max items to fetch per cycle
   // With bundling, this mainly affects how many items we process at once
-  BATCH_SIZE: 100,
+  BATCH_SIZE: 500, // Fetch up to 500 items, SQL ops are chunked
 
   // Cron runs every 60s, use 55s of that window (5s buffer for cleanup)
   MAX_PROCESS_TIME_MS: 55_000,

@@ -40,8 +40,12 @@ export async function fetchPendingBatch(
   return result.results || [];
 }
 
+// D1 has a limit on SQL bound parameters, chunk operations to stay under it
+const SQL_CHUNK_SIZE = 50;
+
 /**
  * Mark multiple items as 'signing' (locked for batch processing)
+ * Chunks the operation to stay under D1's SQL parameter limit
  */
 export async function markBatchAsSigning(
   env: Env,
@@ -50,16 +54,21 @@ export async function markBatchAsSigning(
   if (itemIds.length === 0) return;
 
   const now = new Date().toISOString();
-  const placeholders = itemIds.map(() => "?").join(",");
 
-  await env.D1_PROD
-    .prepare(
-      `UPDATE attestation_queue
-       SET status = 'signing', updated_at = ?
-       WHERE id IN (${placeholders})`
-    )
-    .bind(now, ...itemIds)
-    .run();
+  // Process in chunks to avoid D1's SQL variable limit
+  for (let i = 0; i < itemIds.length; i += SQL_CHUNK_SIZE) {
+    const chunk = itemIds.slice(i, i + SQL_CHUNK_SIZE);
+    const placeholders = chunk.map(() => "?").join(",");
+
+    await env.D1_PROD
+      .prepare(
+        `UPDATE attestation_queue
+         SET status = 'signing', updated_at = ?
+         WHERE id IN (${placeholders})`
+      )
+      .bind(now, ...chunk)
+      .run();
+  }
 }
 
 /**

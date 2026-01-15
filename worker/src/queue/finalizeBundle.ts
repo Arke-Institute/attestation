@@ -68,12 +68,17 @@ export async function finalizeBundleSuccess(
   await Promise.all(kvWrites);
 
   // Batch delete from queue (skip for test mode)
+  // Chunk to stay under D1's SQL parameter limit
   if (!skipQueue && queueIds.length > 0) {
-    const placeholders = queueIds.map(() => "?").join(",");
-    await env.D1_PROD
-      .prepare(`DELETE FROM attestation_queue WHERE id IN (${placeholders})`)
-      .bind(...queueIds)
-      .run();
+    const CHUNK_SIZE = 50;
+    for (let i = 0; i < queueIds.length; i += CHUNK_SIZE) {
+      const chunk = queueIds.slice(i, i + CHUNK_SIZE);
+      const placeholders = chunk.map(() => "?").join(",");
+      await env.D1_PROD
+        .prepare(`DELETE FROM attestation_queue WHERE id IN (${placeholders})`)
+        .bind(...chunk)
+        .run();
+    }
   }
 }
 
