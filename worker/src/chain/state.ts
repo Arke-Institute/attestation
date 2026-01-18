@@ -37,7 +37,7 @@ export async function getChainHead(
 }
 
 /**
- * Update the chain head in D1
+ * Update the chain head in D1 and KV
  * CRITICAL: This must succeed for chain integrity
  *
  * @param env - Worker environment
@@ -53,7 +53,9 @@ export async function updateChainHead(
   seq: number,
   chainKey: string = CHAIN_KEY_PROD
 ): Promise<void> {
-  // Use upsert to handle both existing and new chain keys
+  const now = new Date().toISOString();
+
+  // Update D1 (source of truth)
   await env.D1_PROD.prepare(
     `INSERT INTO chain_state (key, tx_id, cid, seq, updated_at)
      VALUES (?, ?, ?, ?, ?)
@@ -63,8 +65,13 @@ export async function updateChainHead(
        seq = excluded.seq,
        updated_at = excluded.updated_at`
   )
-    .bind(chainKey, txId, cid, seq, new Date().toISOString())
+    .bind(chainKey, txId, cid, seq, now)
     .run();
+
+  // Mirror to KV for API access (use 'tx' to match AttestationRecord format)
+  const kvKey = `chain:${chainKey}`;
+  const kvData = JSON.stringify({ tx: txId, cid, seq, updated_at: now });
+  await env.ATTESTATION_INDEX.put(kvKey, kvData);
 }
 
 /**
@@ -74,6 +81,8 @@ export async function resetChainHead(
   env: Env,
   chainKey: string = CHAIN_KEY_TEST
 ): Promise<void> {
+  const now = new Date().toISOString();
+
   await env.D1_PROD.prepare(
     `INSERT INTO chain_state (key, tx_id, cid, seq, updated_at)
      VALUES (?, NULL, NULL, 0, ?)
@@ -83,6 +92,11 @@ export async function resetChainHead(
        seq = 0,
        updated_at = excluded.updated_at`
   )
-    .bind(chainKey, new Date().toISOString())
+    .bind(chainKey, now)
     .run();
+
+  // Mirror to KV (use 'tx' to match AttestationRecord format)
+  const kvKey = `chain:${chainKey}`;
+  const kvData = JSON.stringify({ tx: null, cid: null, seq: 0, updated_at: now });
+  await env.ATTESTATION_INDEX.put(kvKey, kvData);
 }
