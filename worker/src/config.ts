@@ -5,7 +5,9 @@
 export const CONFIG = {
   // Batch size - max items to fetch per cycle
   // With bundling, this mainly affects how many items we process at once
-  BATCH_SIZE: 500, // Fetch up to 500 items, SQL ops are chunked
+  // Limited to 250 to stay under Cloudflare's ~1000 subrequest limit
+  // (each item needs 2 KV writes + chunked SQL deletes)
+  BATCH_SIZE: 250,
 
   // Cron runs every 60s, use 55s of that window (5s buffer for cleanup)
   MAX_PROCESS_TIME_MS: 55_000,
