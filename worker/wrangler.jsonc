@@ -18,19 +18,16 @@
     }
   ],
 
-  // KV namespace for attestation index
+  // KV namespaces
   "kv_namespaces": [
     {
       "binding": "ATTESTATION_INDEX",
       "id": "8637de60b50f4572b1ba7f312479a4be"
-    }
-  ],
-
-  // R2 for direct manifest fetching (PROD only)
-  "r2_buckets": [
+    },
     {
-      "binding": "R2_MANIFESTS",
-      "bucket_name": "arke-manifests-prod"
+      // Shared with arke-v1 API - manifests stored as prod:{cid}
+      "binding": "KV_MANIFESTS",
+      "id": "f06dea85e7bf4ef591ce13f8f3318bf4"
     }
   ],
 

@@ -1,5 +1,8 @@
 /**
- * Parallel manifest fetching from R2
+ * Parallel manifest fetching from KV
+ *
+ * Manifests are stored in KV_MANIFESTS with keys: prod:{cid}
+ * This namespace is shared with the arke-v1 API.
  */
 
 import type { Env, QueueItem, Manifest } from "../types";
@@ -15,16 +18,19 @@ export async function fetchManifestsParallel(
 ): Promise<Map<string, Manifest>> {
   const results = new Map<string, Manifest>();
 
-  // Fetch all manifests in parallel
+  // Fetch all manifests in parallel from KV
   const fetches = items.map(async (item) => {
     try {
-      const r2Object = await env.R2_MANIFESTS.get(item.cid);
-      if (!r2Object) {
-        console.error(`[MANIFESTS] Not found in R2: ${item.cid}`);
+      // KV keys are prefixed with "prod:" for production manifests
+      const kvKey = `prod:${item.cid}`;
+      const stored = await env.KV_MANIFESTS.get(kvKey);
+
+      if (!stored) {
+        console.error(`[MANIFESTS] Not found in KV: ${item.cid}`);
         return null;
       }
 
-      const manifest = (await r2Object.json()) as Manifest;
+      const manifest = JSON.parse(stored) as Manifest;
 
       // Validate manifest has required ver field
       if (typeof manifest.ver !== "number") {

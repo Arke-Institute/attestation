@@ -4,7 +4,7 @@
 
 export interface Env {
   D1_PROD: D1Database;
-  R2_MANIFESTS: R2Bucket;
+  KV_MANIFESTS: KVNamespace; // Shared with arke-v1 API - keys are prod:{cid}
   ATTESTATION_INDEX: KVNamespace;
   ARWEAVE_WALLET: string;
   ADMIN_SECRET?: string; // Optional secret for admin endpoints
