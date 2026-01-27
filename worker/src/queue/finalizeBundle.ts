@@ -3,10 +3,68 @@
  *
  * With bundling, the entire batch either succeeds or fails together.
  * This simplifies the logic compared to individual uploads.
+ *
+ * KV writes are chunked with retry logic to avoid 429 rate limit errors.
  */
 
 import type { Env, PendingDataItem, ChainHead, AttestationRecord } from "../types";
 import { updateChainHead, CHAIN_KEY_PROD } from "../chain/state";
+
+// KV write configuration
+const KV_BATCH_SIZE = 50; // Max concurrent KV writes per batch
+const KV_BATCH_DELAY_MS = 100; // Delay between batches
+const KV_MAX_RETRIES = 3; // Max retries per write on 429
+
+/**
+ * Sleep helper
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * KV put with retry on 429 errors
+ */
+async function kvPutWithRetry(
+  kv: KVNamespace,
+  key: string,
+  value: string,
+  retries = KV_MAX_RETRIES
+): Promise<void> {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      await kv.put(key, value);
+      return;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes("429") && attempt < retries - 1) {
+        const backoff = KV_BATCH_DELAY_MS * Math.pow(2, attempt);
+        console.log(`[KV] Rate limited on ${key}, retrying in ${backoff}ms (attempt ${attempt + 1}/${retries})`);
+        await sleep(backoff);
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
+/**
+ * Execute KV writes in chunked batches with retry logic
+ */
+async function executeKvWritesChunked(
+  kv: KVNamespace,
+  writes: Array<{ key: string; value: string }>
+): Promise<void> {
+  for (let i = 0; i < writes.length; i += KV_BATCH_SIZE) {
+    const batch = writes.slice(i, i + KV_BATCH_SIZE);
+    await Promise.all(batch.map((w) => kvPutWithRetry(kv, w.key, w.value)));
+
+    // Delay between batches (skip after last batch)
+    if (i + KV_BATCH_SIZE < writes.length) {
+      await sleep(KV_BATCH_DELAY_MS);
+    }
+  }
+}
 
 /**
  * Finalize a successful bundle upload
@@ -37,7 +95,7 @@ export async function finalizeBundleSuccess(
   await updateChainHead(env, lastItem.txId, lastItem.queueItem.cid, lastItem.seq, chainKey);
 
   // Prepare KV writes and queue deletes
-  const kvWrites: Promise<void>[] = [];
+  const kvWrites: Array<{ key: string; value: string }> = [];
   const queueIds: number[] = [];
 
   for (const p of pending) {
@@ -51,11 +109,9 @@ export async function finalizeBundleSuccess(
 
     const kvDataStr = JSON.stringify(kvData);
 
-    // Write to both version-specific and latest keys
-    kvWrites.push(
-      env.ATTESTATION_INDEX.put(`attest:${p.queueItem.entity_id}:${p.manifest.ver}`, kvDataStr)
-    );
-    kvWrites.push(env.ATTESTATION_INDEX.put(`attest:${p.queueItem.entity_id}:latest`, kvDataStr));
+    // Queue writes for both version-specific and latest keys
+    kvWrites.push({ key: `attest:${p.queueItem.entity_id}:${p.manifest.ver}`, value: kvDataStr });
+    kvWrites.push({ key: `attest:${p.queueItem.entity_id}:latest`, value: kvDataStr });
 
     queueIds.push(p.queueItem.id);
 
@@ -64,8 +120,8 @@ export async function finalizeBundleSuccess(
     );
   }
 
-  // Execute KV writes in parallel
-  await Promise.all(kvWrites);
+  // Execute KV writes in chunked batches with retry logic
+  await executeKvWritesChunked(env.ATTESTATION_INDEX, kvWrites);
 
   // Batch delete from queue (skip for test mode)
   // Chunk to stay under D1's SQL parameter limit
