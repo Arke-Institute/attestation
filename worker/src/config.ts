@@ -4,9 +4,10 @@
 
 export const CONFIG = {
   // Batch size - max items to fetch per cycle
-  // With bundling, this mainly affects how many items we process at once
-  // KV writes are chunked with retry logic to handle rate limits
-  BATCH_SIZE: 500,
+  // Limited by Cloudflare's 1000 subrequest limit per invocation:
+  // Each item needs 1 KV read + 2 KV writes = 3 subrequests
+  // 300 items × 3 = 900 subrequests, leaving headroom for D1/chain ops
+  BATCH_SIZE: 300,
 
   // Cron runs every 60s, use 55s of that window (5s buffer for cleanup)
   MAX_PROCESS_TIME_MS: 55_000,
