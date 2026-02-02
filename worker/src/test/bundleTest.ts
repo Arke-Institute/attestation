@@ -158,7 +158,7 @@ export async function runBundleTest(env: Env, count: number = 5): Promise<TestRe
   const uploadMs = Date.now() - uploadStart;
 
   // Finalize (update test chain head, skip queue deletion since items aren't in queue)
-  await finalizeBundleSuccess(env, pending, headBefore, {
+  await finalizeBundleSuccess(env, pending, headBefore, bundleTxId, {
     chainKey: CHAIN_KEY_TEST,
     skipQueue: true,
   });

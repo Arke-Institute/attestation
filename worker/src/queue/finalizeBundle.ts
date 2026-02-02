@@ -9,6 +9,7 @@
 
 import type { Env, PendingDataItem, ChainHead, AttestationRecord } from "../types";
 import { updateChainHead, CHAIN_KEY_PROD } from "../chain/state";
+import { trackBundle } from "../verify/bundleTracker";
 
 // KV write configuration
 const KV_BATCH_SIZE = 50; // Max concurrent KV writes per batch
@@ -73,16 +74,19 @@ async function executeKvWritesChunked(
  * 1. Update KV indexes for all items (with bundled=true)
  * 2. Delete all items from queue
  * 3. Update chain head to last item
+ * 4. Track bundle for seeding verification
  *
  * @param env - Worker environment
  * @param pending - All pending DataItems that were uploaded
  * @param originalHead - Chain head before this batch
+ * @param bundleTxId - The bundle transaction ID for seeding verification
  * @param options - Optional settings (chainKey for test isolation, skipQueue to not delete from queue)
  */
 export async function finalizeBundleSuccess(
   env: Env,
   pending: PendingDataItem[],
   originalHead: ChainHead,
+  bundleTxId: string,
   options: { chainKey?: string; skipQueue?: boolean } = {}
 ): Promise<void> {
   const { chainKey = CHAIN_KEY_PROD, skipQueue = false } = options;
@@ -135,6 +139,11 @@ export async function finalizeBundleSuccess(
         .bind(...chunk)
         .run();
     }
+  }
+
+  // Track bundle for seeding verification (skip for test mode)
+  if (!skipQueue) {
+    await trackBundle(env, bundleTxId, pending);
   }
 }
 

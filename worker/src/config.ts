@@ -42,4 +42,20 @@ export const CONFIG = {
 
   // Enable bundling (can disable for fallback to L1 uploads)
   USE_BUNDLING: true,
+
+  // ==========================================================================
+  // Bundle Verification Configuration
+  // ==========================================================================
+
+  // Grace period before checking if bundle is seeded (gives time for propagation)
+  BUNDLE_SEED_GRACE_PERIOD_MS: 10 * 60 * 1000, // 10 minutes
+
+  // Timeout after which bundle is declared failed if still not seeded
+  BUNDLE_SEED_TIMEOUT_MS: 30 * 60 * 1000, // 30 minutes
+
+  // How long to keep bundle records for debugging
+  BUNDLE_RETENTION_MS: 24 * 60 * 60 * 1000, // 24 hours
+
+  // HTTP timeout for HEAD requests when checking seeding status
+  BUNDLE_VERIFY_TIMEOUT_MS: 5000, // 5 seconds
 } as const;

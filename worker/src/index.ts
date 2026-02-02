@@ -20,6 +20,7 @@ import { getQueueStats } from "./queue/fetch";
 import { retryFailedItems, cleanupStuckItems } from "./queue/cleanup";
 import { processQueue } from "./process";
 import { runBundleTest } from "./test/bundleTest";
+import { verifyPendingBundles, getVerificationStats } from "./verify/bundleTracker";
 
 // Track last batch result for health endpoint
 let lastBatch: (ProcessResult & { timestamp: string }) | null = null;
@@ -50,11 +51,12 @@ export default {
     if (url.pathname === "/") {
       const stats = await getQueueStats(env);
       const head = await getChainHead(env);
+      const verification = await getVerificationStats(env);
 
       return Response.json({
         status: "ok",
         service: "arke-attestation",
-        version: "4.0.0",
+        version: "4.1.0",
         config: {
           batch_size: CONFIG.BATCH_SIZE,
         },
@@ -63,6 +65,7 @@ export default {
           head_tx: head.tx_id,
         },
         queue: stats,
+        verification,
         last_batch: lastBatch,
       });
     }
@@ -106,10 +109,11 @@ export default {
     const trigger = event.cron;
 
     if (trigger === "* * * * *") {
-      // Every minute: cleanup stuck items first, then process queue
+      // Every minute: cleanup stuck items first, then process queue, then verify bundles
       // This ensures stuck items are reset before being picked up again
       await cleanupStuckItems(env);
       await processQueue(env);
+      await verifyPendingBundles(env);
     }
 
     if (trigger === "0 4 * * *") {

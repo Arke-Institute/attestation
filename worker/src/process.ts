@@ -159,11 +159,13 @@ async function processWithBundling(
   const uploadStart = Date.now();
   let uploadSuccess = false;
   let uploadError: Error | null = null;
+  let bundleTxId: string | null = null;
 
   try {
     const wallet = JSON.parse(env.ARWEAVE_WALLET);
     const result = await uploadBundle(dataItems, wallet);
     uploadSuccess = true;
+    bundleTxId = result.bundleTxId;
     console.log(
       `[ATTESTATION] Bundle uploaded: ${result.bundleTxId} (${pending.length} items, ${bundleSize} bytes)`
     );
@@ -177,8 +179,8 @@ async function processWithBundling(
   // 8. Finalize
   const finalizeStart = Date.now();
 
-  if (uploadSuccess) {
-    await finalizeBundleSuccess(env, pending, head);
+  if (uploadSuccess && bundleTxId) {
+    await finalizeBundleSuccess(env, pending, head, bundleTxId);
   } else {
     await finalizeBundleFailure(env, pending, uploadError!);
   }

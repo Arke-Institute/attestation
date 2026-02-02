@@ -8,6 +8,7 @@ export interface Env {
   ATTESTATION_INDEX: KVNamespace;
   ARWEAVE_WALLET: string;
   ADMIN_SECRET?: string; // Optional secret for admin endpoints
+  ALERT_WEBHOOK_URL?: string; // Optional Slack/Discord webhook for alerts
 }
 
 export interface ChainHead {
@@ -123,4 +124,34 @@ export interface BatchResult {
     uploadTimeMs: number;
     finalizeTimeMs: number;
   };
+}
+
+// =============================================================================
+// Bundle Verification Types
+// =============================================================================
+
+/**
+ * A bundle pending seeding verification
+ */
+export interface PendingBundle {
+  bundleTxId: string;
+  entityCids: Record<string, string>; // entityId -> cid mapping
+  itemCount: number;
+  uploadedAt: number;
+  checkCount: number;
+  verified?: boolean;
+  verifiedAt?: number;
+  failed?: boolean;
+  failedAt?: number;
+}
+
+/**
+ * Result of bundle verification check
+ */
+export interface BundleVerifyResult {
+  checked: number;
+  verified: number;
+  failed: number;
+  pending: number;
+  requeuedEntities: number;
 }
