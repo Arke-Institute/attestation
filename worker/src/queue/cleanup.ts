@@ -46,11 +46,9 @@ export async function retryFailedItems(env: Env): Promise<void> {
 
 /**
  * Cleanup items stuck in 'uploading' or 'signing' state
- * Runs daily at 4 AM
+ * Runs every minute (before queue processing) and daily at 4 AM
  */
 export async function cleanupStuckItems(env: Env): Promise<void> {
-  console.log("[ATTESTATION] Cleaning up stuck items");
-
   const db = env.D1_PROD;
   const now = new Date().toISOString();
 
@@ -66,7 +64,8 @@ export async function cleanupStuckItems(env: Env): Promise<void> {
     .bind(now, threshold)
     .run();
 
+  // Only log if we actually reset items (avoid noise on every minute cron)
   if (result.meta.changes > 0) {
-    console.log(`[ATTESTATION] Reset ${result.meta.changes} stuck items`);
+    console.log(`[ATTESTATION] Reset ${result.meta.changes} stuck items (threshold: ${CONFIG.STUCK_THRESHOLD_MS / 1000}s)`);
   }
 }

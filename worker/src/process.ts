@@ -61,8 +61,37 @@ async function processWithBundling(
   const manifests = await fetchManifestsParallel(env, items);
 
   // Filter to items that have manifests
-  const itemsWithManifests = items.filter((i) => manifests.has(i.cid));
+  let itemsWithManifests = items.filter((i) => manifests.has(i.cid));
   const itemsWithoutManifests = items.filter((i) => !manifests.has(i.cid));
+
+  // 3.5. Size-based batch limiting
+  // Large manifests (450KB+) can create 40MB+ bundles that fail to seed
+  // Limit batch to MAX_BUNDLE_SIZE_BYTES to prevent seeding failures
+  let accumulatedSize = 0;
+  const itemsWithinSizeLimit: typeof itemsWithManifests = [];
+  const itemsExceedingSizeLimit: typeof itemsWithManifests = [];
+
+  for (const item of itemsWithManifests) {
+    const manifest = manifests.get(item.cid);
+    const manifestSize = manifest ? JSON.stringify(manifest).length : 0;
+
+    if (accumulatedSize + manifestSize <= CONFIG.MAX_BUNDLE_SIZE_BYTES) {
+      itemsWithinSizeLimit.push(item);
+      accumulatedSize += manifestSize;
+    } else {
+      itemsExceedingSizeLimit.push(item);
+    }
+  }
+
+  // If we had to split due to size, revert excess items to pending
+  if (itemsExceedingSizeLimit.length > 0) {
+    console.log(
+      `[ATTESTATION] Size limit: processing ${itemsWithinSizeLimit.length} items (${Math.round(accumulatedSize / 1024)}KB), ` +
+        `deferring ${itemsExceedingSizeLimit.length} items to next cycle`
+    );
+    await revertItemsToPending(env, itemsExceedingSizeLimit);
+    itemsWithManifests = itemsWithinSizeLimit;
+  }
 
   // Mark items without manifests as failed
   await markItemsAsFailed(env, itemsWithoutManifests, "Manifest not found in R2");
@@ -244,6 +273,30 @@ async function processLegacy(
 async function revertToSigningState(env: Env, pending: PendingDataItem[]): Promise<void> {
   const now = new Date().toISOString();
   const ids = pending.map((p) => p.queueItem.id);
+
+  // Chunk to stay under D1's SQL parameter limit
+  const CHUNK_SIZE = 50;
+  for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+    const chunk = ids.slice(i, i + CHUNK_SIZE);
+    const placeholders = chunk.map(() => "?").join(",");
+    await env.D1_PROD
+      .prepare(
+        `UPDATE attestation_queue SET status = 'pending', updated_at = ? WHERE id IN (${placeholders})`
+      )
+      .bind(now, ...chunk)
+      .run();
+  }
+}
+
+/**
+ * Revert queue items back to 'pending' state
+ * Used when batch exceeds size limit
+ */
+async function revertItemsToPending(env: Env, items: QueueItem[]): Promise<void> {
+  if (items.length === 0) return;
+
+  const now = new Date().toISOString();
+  const ids = items.map((item) => item.id);
 
   // Chunk to stay under D1's SQL parameter limit
   const CHUNK_SIZE = 50;

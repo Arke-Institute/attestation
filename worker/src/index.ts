@@ -106,7 +106,9 @@ export default {
     const trigger = event.cron;
 
     if (trigger === "* * * * *") {
-      // Every minute: process attestation queue
+      // Every minute: cleanup stuck items first, then process queue
+      // This ensures stuck items are reset before being picked up again
+      await cleanupStuckItems(env);
       await processQueue(env);
     }
 

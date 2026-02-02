@@ -30,6 +30,11 @@ export const CONFIG = {
   // At 300KB we're paying ~$0.007 for ~300 manifests instead of ~$1.07 unbundled
   BUNDLE_SIZE_THRESHOLD: 300 * 1024, // 300KB
 
+  // Maximum bundle size (in bytes)
+  // Large bundles (40MB+) fail to seed on Arweave gateways
+  // 10MB is safe and allows for network variance
+  MAX_BUNDLE_SIZE_BYTES: 10 * 1024 * 1024, // 10MB
+
   // Time threshold for bundle creation (in ms)
   // If we don't hit size threshold, upload after this much time
   // Ensures low-traffic periods don't wait forever
