@@ -20,7 +20,13 @@ import { getQueueStats } from "./queue/fetch";
 import { retryFailedItems, cleanupStuckItems } from "./queue/cleanup";
 import { processQueue } from "./process";
 import { runBundleTest } from "./test/bundleTest";
-import { verifyPendingBundles, getVerificationStats } from "./verify/bundleTracker";
+import {
+  verifyPendingBundles,
+  getVerificationStats,
+  getPendingBundles,
+  addTestBundle,
+  checkBundleSeededPublic,
+} from "./verify/bundleTracker";
 
 // Track last batch result for health endpoint
 let lastBatch: (ProcessResult & { timestamp: string }) | null = null;
@@ -93,6 +99,72 @@ export default {
 
       const result = await runBundleTest(env, count);
       return Response.json(result);
+    }
+
+    // Verification test endpoint (admin only)
+    // GET /test-verify - Show pending bundles and run verification
+    // POST /test-verify?bundleTxId=xxx&ageMinutes=15 - Add test bundle record
+    // GET /test-verify/check?bundleTxId=xxx - Check if specific bundle is seeded
+    if (url.pathname === "/test-verify") {
+      if (!isAuthorized(request, env)) {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      if (request.method === "GET") {
+        // Show current bundles and run verification
+        const bundlesBefore = await getPendingBundles(env);
+        const result = await verifyPendingBundles(env);
+        const bundlesAfter = await getPendingBundles(env);
+
+        return Response.json({
+          verification_result: result,
+          bundles_before: bundlesBefore,
+          bundles_after: bundlesAfter,
+          config: {
+            grace_period_minutes: CONFIG.BUNDLE_SEED_GRACE_PERIOD_MS / 60000,
+            timeout_minutes: CONFIG.BUNDLE_SEED_TIMEOUT_MS / 60000,
+          },
+        });
+      }
+
+      if (request.method === "POST") {
+        // Add a test bundle record
+        const bundleTxId = url.searchParams.get("bundleTxId");
+        if (!bundleTxId) {
+          return Response.json({ error: "bundleTxId is required" }, { status: 400 });
+        }
+
+        const ageMinutes = parseInt(url.searchParams.get("ageMinutes") || "0", 10);
+        const itemCount = parseInt(url.searchParams.get("itemCount") || "1", 10);
+
+        const bundle = await addTestBundle(env, bundleTxId, { ageMinutes, itemCount });
+        const isSeeded = await checkBundleSeededPublic(bundleTxId);
+
+        return Response.json({
+          message: "Test bundle added",
+          bundle,
+          current_seeding_status: isSeeded,
+          will_be_checked_after_minutes: CONFIG.BUNDLE_SEED_GRACE_PERIOD_MS / 60000 - ageMinutes,
+        });
+      }
+    }
+
+    if (url.pathname === "/test-verify/check" && request.method === "GET") {
+      if (!isAuthorized(request, env)) {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      const bundleTxId = url.searchParams.get("bundleTxId");
+      if (!bundleTxId) {
+        return Response.json({ error: "bundleTxId is required" }, { status: 400 });
+      }
+
+      const isSeeded = await checkBundleSeededPublic(bundleTxId);
+      return Response.json({
+        bundleTxId,
+        isSeeded,
+        checkedAt: new Date().toISOString(),
+      });
     }
 
     return new Response("Not found", { status: 404 });

@@ -49,9 +49,9 @@ export async function trackBundle(
 }
 
 /**
- * Get all pending bundles from KV
+ * Get all pending bundles from KV (exported for testing)
  */
-async function getPendingBundles(env: Env): Promise<PendingBundle[]> {
+export async function getPendingBundles(env: Env): Promise<PendingBundle[]> {
   const data = await env.ATTESTATION_INDEX.get(PENDING_BUNDLES_KEY);
   if (!data) return [];
 
@@ -216,6 +216,45 @@ export async function verifyPendingBundles(env: Env): Promise<BundleVerifyResult
   }
 
   return result;
+}
+
+/**
+ * Add a test bundle record for verification testing
+ * This allows testing the verification logic without a real upload
+ */
+export async function addTestBundle(
+  env: Env,
+  bundleTxId: string,
+  options: { itemCount?: number; ageMinutes?: number } = {}
+): Promise<PendingBundle> {
+  const { itemCount = 1, ageMinutes = 0 } = options;
+
+  // Create test entity mappings
+  const entityCids: Record<string, string> = {};
+  for (let i = 0; i < itemCount; i++) {
+    entityCids[`test_entity_${i}`] = `test_cid_${i}`;
+  }
+
+  const bundle: PendingBundle = {
+    bundleTxId,
+    entityCids,
+    itemCount,
+    uploadedAt: Date.now() - ageMinutes * 60 * 1000,
+    checkCount: 0,
+  };
+
+  const bundles = await getPendingBundles(env);
+  bundles.push(bundle);
+  await savePendingBundles(env, bundles);
+
+  return bundle;
+}
+
+/**
+ * Check if a specific bundle is seeded (exported for testing)
+ */
+export async function checkBundleSeededPublic(bundleTxId: string): Promise<boolean> {
+  return checkBundleSeeded(bundleTxId);
 }
 
 /**
