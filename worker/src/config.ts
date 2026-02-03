@@ -58,4 +58,14 @@ export const CONFIG = {
 
   // HTTP timeout for HEAD requests when checking seeding status
   BUNDLE_VERIFY_TIMEOUT_MS: 5000, // 5 seconds
+
+  // ==========================================================================
+  // Wallet Balance Configuration
+  // ==========================================================================
+
+  // Warning threshold - send alert but continue processing
+  BALANCE_WARNING_THRESHOLD_AR: 2,
+
+  // Critical threshold - stop processing to avoid wasted cycles
+  BALANCE_CRITICAL_THRESHOLD_AR: 0.05,
 } as const;

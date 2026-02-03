@@ -19,6 +19,8 @@ import { fetchPendingBatch, markBatchAsSigning } from "./queue/fetch";
 import { fetchManifestsParallel } from "./manifests/fetch";
 import { uploadBundle, calculateBundleSize } from "./upload/bundle";
 import { finalizeBundleSuccess, finalizeBundleFailure } from "./queue/finalizeBundle";
+import { checkWalletBalance } from "./balance/check";
+import { sendLowBalanceAlert } from "./balance/alerts";
 
 // Legacy imports for fallback
 import { preSignBatch } from "./chain/signing";
@@ -30,6 +32,27 @@ import { finalizeBatch } from "./queue/finalize";
  */
 export async function processQueue(env: Env): Promise<ProcessResult> {
   const startTime = Date.now();
+
+  // 0. Check wallet balance - skip processing if critically low
+  try {
+    const balance = await checkWalletBalance(env);
+
+    if (balance.isCritical) {
+      console.log(
+        `[ATTESTATION] Skipping processing - wallet balance critically low: ${balance.balanceAR} AR`
+      );
+      await sendLowBalanceAlert(env, balance);
+      return { processed: 0, succeeded: 0, failed: 0, duration: Date.now() - startTime };
+    }
+
+    if (balance.isLow) {
+      console.warn(`[ATTESTATION] Wallet balance low: ${balance.balanceAR} AR - continuing but alert sent`);
+      await sendLowBalanceAlert(env, balance);
+    }
+  } catch (error) {
+    // Don't block processing if balance check fails - just log and continue
+    console.error(`[ATTESTATION] Balance check failed: ${error}`);
+  }
 
   // 1. Fetch batch of pending items
   const items = await fetchPendingBatch(env, CONFIG.BATCH_SIZE);

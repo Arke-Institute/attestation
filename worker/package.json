@@ -13,6 +13,7 @@
     "wrangler": "^3.99.0"
   },
   "dependencies": {
+    "@arke-institute/alerting": "file:../../alerting",
     "@irys/arweave": "^0.0.5",
     "base64url": "^3.0.1"
   }

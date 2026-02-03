@@ -8,7 +8,7 @@ export interface Env {
   ATTESTATION_INDEX: KVNamespace;
   ARWEAVE_WALLET: string;
   ADMIN_SECRET?: string; // Optional secret for admin endpoints
-  ALERT_WEBHOOK_URL?: string; // Optional Slack/Discord webhook for alerts
+  DISCORD_ALERT_WEBHOOK?: string; // Discord webhook for alerts (via @arke-institute/alerting)
 }
 
 export interface ChainHead {
@@ -154,4 +154,19 @@ export interface BundleVerifyResult {
   failed: number;
   pending: number;
   requeuedEntities: number;
+}
+
+// =============================================================================
+// Wallet Balance Types
+// =============================================================================
+
+/**
+ * Result of checking wallet balance
+ */
+export interface BalanceInfo {
+  address: string;
+  balanceAR: string;
+  balanceWinston: string;
+  isLow: boolean; // Below warning threshold
+  isCritical: boolean; // Below critical threshold, should halt processing
 }

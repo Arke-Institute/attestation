@@ -8,3 +8,8 @@ ARWEAVE_WALLET={"kty":"RSA","n":"...","e":"...","d":"..."}
 # Admin secret for protected endpoints (/trigger, /test-bundle)
 # Generate with: openssl rand -base64 32
 ADMIN_SECRET=your-secret-here
+
+# Discord webhook URL for alerts (optional)
+# Alerts include: low balance warnings, bundle seeding failures
+# If not set, alerts will be logged to console instead
+DISCORD_ALERT_WEBHOOK=https://discord.com/api/webhooks/xxx/yyy

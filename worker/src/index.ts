@@ -27,6 +27,7 @@ import {
   addTestBundle,
   checkBundleSeededPublic,
 } from "./verify/bundleTracker";
+import { checkWalletBalance } from "./balance/check";
 
 // Track last batch result for health endpoint
 let lastBatch: (ProcessResult & { timestamp: string }) | null = null;
@@ -59,18 +60,34 @@ export default {
       const head = await getChainHead(env);
       const verification = await getVerificationStats(env);
 
+      // Check wallet balance (handle errors gracefully)
+      let wallet: { address: string; balance_ar: string; status: string } | null = null;
+      try {
+        const balance = await checkWalletBalance(env);
+        wallet = {
+          address: balance.address,
+          balance_ar: balance.balanceAR,
+          status: balance.isCritical ? "critical" : balance.isLow ? "low" : "ok",
+        };
+      } catch (error) {
+        console.error(`[HEALTH] Balance check failed: ${error}`);
+      }
+
       return Response.json({
         status: "ok",
         service: "arke-attestation",
-        version: "4.1.0",
+        version: "4.2.0",
         config: {
           batch_size: CONFIG.BATCH_SIZE,
+          balance_warning_threshold_ar: CONFIG.BALANCE_WARNING_THRESHOLD_AR,
+          balance_critical_threshold_ar: CONFIG.BALANCE_CRITICAL_THRESHOLD_AR,
         },
         chain: {
           seq: head.seq,
           head_tx: head.tx_id,
         },
         queue: stats,
+        wallet,
         verification,
         last_batch: lastBatch,
       });
