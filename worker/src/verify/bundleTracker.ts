@@ -5,7 +5,7 @@
  * If a bundle fails to seed, re-queues affected entities for retry.
  */
 
-import type { Env, PendingBundle, PendingDataItem, BundleVerifyResult } from "../types";
+import type { Env, PendingBundle, PendingDataItem, BundleVerifyResult, TrackedItem } from "../types";
 import { CONFIG } from "../config";
 import { sendSeedingFailureAlert } from "./alerts";
 
@@ -24,7 +24,13 @@ export async function trackBundle(
   bundleTxId: string,
   pending: PendingDataItem[]
 ): Promise<void> {
-  // Build entity -> cid mapping
+  // Build items array (preserves all items including same entity with different CIDs)
+  const items: TrackedItem[] = pending.map((p) => ({
+    entityId: p.queueItem.entity_id,
+    cid: p.queueItem.cid,
+  }));
+
+  // Also build legacy entityCids for backward compatibility (last CID wins)
   const entityCids: Record<string, string> = {};
   for (const p of pending) {
     entityCids[p.queueItem.entity_id] = p.queueItem.cid;
@@ -32,7 +38,8 @@ export async function trackBundle(
 
   const bundle: PendingBundle = {
     bundleTxId,
-    entityCids,
+    entityCids, // Keep for backward compat
+    items, // New: all items preserved
     itemCount: pending.length,
     uploadedAt: Date.now(),
     checkCount: 0,
@@ -78,7 +85,9 @@ async function savePendingBundles(env: Env, bundles: PendingBundle[]): Promise<v
 }
 
 /**
- * Check if bundle data is seeded (HEAD request to /raw/{txId})
+ * Check if bundle is confirmed on Arweave via /tx/{txId}/status
+ * This is much faster and more reliable than checking /raw/{txId}
+ * Returns true if TX has at least 1 confirmation
  */
 async function checkBundleSeeded(bundleTxId: string): Promise<boolean> {
   try {
@@ -88,13 +97,29 @@ async function checkBundleSeeded(bundleTxId: string): Promise<boolean> {
       CONFIG.BUNDLE_VERIFY_TIMEOUT_MS
     );
 
-    const response = await fetch(`https://arweave.net/raw/${bundleTxId}`, {
-      method: "HEAD",
+    const response = await fetch(`https://arweave.net/tx/${bundleTxId}/status`, {
       signal: controller.signal,
     });
 
     clearTimeout(timeout);
-    return response.ok; // 200 = seeded, 404 = not seeded
+
+    if (!response.ok) {
+      return false; // 404 = TX not found/not confirmed yet
+    }
+
+    const text = await response.text();
+    // Non-existent TXs return "Not Found." text, not JSON
+    if (text === "Not Found.") {
+      return false;
+    }
+
+    try {
+      const status = JSON.parse(text) as { number_of_confirmations?: number };
+      // Consider seeded if it has at least 1 confirmation
+      return (status.number_of_confirmations ?? 0) > 0;
+    } catch {
+      return false;
+    }
   } catch {
     return false;
   }
@@ -103,16 +128,20 @@ async function checkBundleSeeded(bundleTxId: string): Promise<boolean> {
 /**
  * Re-queue entities from a failed bundle
  * Uses chunked inserts to avoid D1 SQL parameter limits
+ * Supports both new items array and legacy entityCids format
  */
 async function requeueEntities(env: Env, bundle: PendingBundle): Promise<number> {
-  const entries = Object.entries(bundle.entityCids);
+  // Use items array if available, fall back to legacy entityCids
+  const itemsToRequeue: TrackedItem[] = bundle.items ??
+    Object.entries(bundle.entityCids).map(([entityId, cid]) => ({ entityId, cid }));
+
   let requeued = 0;
 
-  for (let i = 0; i < entries.length; i += D1_CHUNK_SIZE) {
-    const chunk = entries.slice(i, i + D1_CHUNK_SIZE);
+  for (let i = 0; i < itemsToRequeue.length; i += D1_CHUNK_SIZE) {
+    const chunk = itemsToRequeue.slice(i, i + D1_CHUNK_SIZE);
     const now = new Date().toISOString();
 
-    for (const [entityId, cid] of chunk) {
+    for (const { entityId, cid } of chunk) {
       // Check if already in queue (avoid duplicates)
       const existing = await env.D1_PROD
         .prepare("SELECT id FROM attestation_queue WHERE entity_id = ? AND cid = ?")
@@ -229,15 +258,20 @@ export async function addTestBundle(
 ): Promise<PendingBundle> {
   const { itemCount = 1, ageMinutes = 0 } = options;
 
-  // Create test entity mappings
+  // Create test items array
+  const items: TrackedItem[] = [];
   const entityCids: Record<string, string> = {};
   for (let i = 0; i < itemCount; i++) {
-    entityCids[`test_entity_${i}`] = `test_cid_${i}`;
+    const entityId = `test_entity_${i}`;
+    const cid = `test_cid_${i}`;
+    items.push({ entityId, cid });
+    entityCids[entityId] = cid;
   }
 
   const bundle: PendingBundle = {
     bundleTxId,
-    entityCids,
+    entityCids, // Legacy compat
+    items, // New format
     itemCount,
     uploadedAt: Date.now() - ageMinutes * 60 * 1000,
     checkCount: 0,

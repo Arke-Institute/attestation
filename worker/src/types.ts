@@ -131,11 +131,20 @@ export interface BatchResult {
 // =============================================================================
 
 /**
+ * Individual item tracked for potential requeue
+ */
+export interface TrackedItem {
+  entityId: string;
+  cid: string;
+}
+
+/**
  * A bundle pending seeding verification
  */
 export interface PendingBundle {
   bundleTxId: string;
-  entityCids: Record<string, string>; // entityId -> cid mapping
+  entityCids: Record<string, string>; // @deprecated - use items array instead
+  items?: TrackedItem[]; // All items for requeue (preserves duplicates)
   itemCount: number;
   uploadedAt: number;
   checkCount: number;
