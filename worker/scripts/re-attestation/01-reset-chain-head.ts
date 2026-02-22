@@ -24,6 +24,7 @@ const LAST_GOOD_HEAD = {
 };
 
 const KV_NAMESPACE_ID = "8637de60b50f4572b1ba7f312479a4be"; // ATTESTATION_INDEX
+const D1_DATABASE = "arke-prod";
 
 function runWrangler(command: string): string {
   try {
@@ -39,12 +40,21 @@ function runWrangler(command: string): string {
 
 function getCurrentHead(): { tx_id: string; cid: string; seq: number } | null {
   try {
+    // Read from D1 (source of truth)
     const output = runWrangler(
-      `kv key get --namespace-id=${KV_NAMESPACE_ID} "chain:head"`
+      `d1 execute ${D1_DATABASE} --remote --command "SELECT tx_id, cid, seq FROM chain_state WHERE key = 'head';"`
     );
-    return JSON.parse(output.trim());
+    const match = output.match(/"tx_id":\s*"([^"]+)".*?"cid":\s*"([^"]+)".*?"seq":\s*(\d+)/s);
+    if (match) {
+      return {
+        tx_id: match[1],
+        cid: match[2],
+        seq: parseInt(match[3], 10),
+      };
+    }
+    return null;
   } catch (error: any) {
-    if (error.message.includes("key not found") || error.message.includes("404")) {
+    if (error.message.includes("no rows")) {
       return null;
     }
     throw error;
@@ -52,9 +62,17 @@ function getCurrentHead(): { tx_id: string; cid: string; seq: number } | null {
 }
 
 function setChainHead(head: typeof LAST_GOOD_HEAD): void {
-  const value = JSON.stringify(head);
+  const now = new Date().toISOString();
+
+  // Update D1 (source of truth)
   runWrangler(
-    `kv key put --namespace-id=${KV_NAMESPACE_ID} "chain:head" '${value}'`
+    `d1 execute ${D1_DATABASE} --remote --command "INSERT INTO chain_state (key, tx_id, cid, seq, updated_at) VALUES ('head', '${head.tx_id}', '${head.cid}', ${head.seq}, '${now}') ON CONFLICT(key) DO UPDATE SET tx_id = excluded.tx_id, cid = excluded.cid, seq = excluded.seq, updated_at = excluded.updated_at;"`
+  );
+
+  // Also update KV for API access
+  const kvValue = JSON.stringify({ tx: head.tx_id, cid: head.cid, seq: head.seq, updated_at: now });
+  runWrangler(
+    `kv key put --namespace-id=${KV_NAMESPACE_ID} "chain:head" '${kvValue}'`
   );
 }
 
