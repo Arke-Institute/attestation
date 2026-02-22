@@ -71,6 +71,10 @@ export async function uploadBundle(
 /**
  * Verify a transaction exists on the network by querying for it
  * Retries a few times to allow for propagation delay
+ *
+ * Arweave /tx/status endpoint returns:
+ * - Plain text "Accepted" for pending transactions
+ * - JSON with block_height for confirmed transactions
  */
 async function verifyTransactionExists(txId: string): Promise<boolean> {
   for (let attempt = 0; attempt < VERIFY_RETRIES; attempt++) {
@@ -79,14 +83,25 @@ async function verifyTransactionExists(txId: string): Promise<boolean> {
       const statusResponse = await fetch(`https://arweave.net/tx/${txId}/status`);
 
       if (statusResponse.ok) {
-        const status = await statusResponse.json() as { block_height?: number };
-        // If we get a block_height, transaction is confirmed
-        if (status.block_height) {
+        const text = await statusResponse.text();
+
+        // "Accepted" means transaction is pending but acknowledged by network
+        if (text === "Accepted") {
           return true;
+        }
+
+        // Try to parse as JSON for confirmed transactions
+        try {
+          const status = JSON.parse(text) as { block_height?: number };
+          if (status.block_height) {
+            return true;
+          }
+        } catch {
+          // Not JSON, but we already checked for "Accepted"
         }
       }
 
-      // Also check if transaction exists (even if not confirmed yet)
+      // Fallback: check if transaction exists via /tx endpoint
       const txResponse = await fetch(`https://arweave.net/tx/${txId}`);
       if (txResponse.ok) {
         return true;
