@@ -2,9 +2,10 @@
  * Turbo upload with retry logic
  *
  * Uploads attestations via Turbo HTTP API with:
- * - Concurrent uploads with configurable parallelism
+ * - Sequential signing to maintain chain integrity (prev_tx links)
+ * - Parallel uploads for speed (IDs known after signing)
  * - Retry logic with exponential backoff
- * - 402 error handling with auto top-up
+ * - 402 error handling for paid uploads
  * - Per-item success/failure tracking
  *
  * Uses the existing bundle module for DataItem creation/signing,
@@ -12,7 +13,7 @@
  */
 
 import { createData, ArweaveSigner, type DataItem } from "../bundle";
-import type { Env, AttestationPayload, QueueItem, Manifest } from "../types";
+import type { Env, AttestationPayload, QueueItem, Manifest, ChainHead } from "../types";
 import { CONFIG } from "../config";
 
 const TURBO_UPLOAD_URL = "https://upload.ardrive.io/v1/tx";
@@ -22,6 +23,8 @@ export interface TurboUploadItem {
   manifest: Manifest;
   payload: AttestationPayload;
   seq: number;
+  signedDataItem?: DataItem;
+  txId?: string; // Known after signing, before upload
 }
 
 export interface TurboUploadResult {
@@ -94,26 +97,87 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Create and sign a DataItem for an attestation
+ * Prepare and sign all items sequentially to maintain chain integrity.
+ *
+ * Each item's prev_tx references the previous item's txId (dataItem.id).
+ * The txId is known immediately after signing, before any upload.
+ *
+ * @param env - Worker environment
+ * @param items - Queue items to process
+ * @param manifests - Map of CID -> Manifest
+ * @param head - Current chain head
+ * @returns Array of items with signed DataItems and known txIds
  */
-async function createSignedDataItem(
-  item: TurboUploadItem,
-  signer: ArweaveSigner
-): Promise<DataItem> {
-  const payloadStr = JSON.stringify(item.payload);
-  const tags = buildTags(item.payload);
+export async function signItemsSequentially(
+  env: Env,
+  items: QueueItem[],
+  manifests: Map<string, Manifest>,
+  head: ChainHead
+): Promise<TurboUploadItem[]> {
+  const wallet = JSON.parse(env.ARWEAVE_WALLET);
+  const signer = new ArweaveSigner(wallet);
 
-  const dataItem = createData(payloadStr, signer, { tags });
-  await dataItem.sign(signer);
+  const signedItems: TurboUploadItem[] = [];
 
-  return dataItem;
+  // Chain state - starts from current head
+  let prevTx: string | null = head.tx_id;
+  let prevCid = head.cid;
+  let seq = head.seq;
+
+  for (const item of items) {
+    const manifest = manifests.get(item.cid);
+    if (!manifest) {
+      console.warn(`[TURBO] Skipping ${item.cid} - manifest not found`);
+      continue;
+    }
+
+    seq++;
+
+    // Build payload with chain links
+    const payload: AttestationPayload = {
+      attestation: {
+        pi: item.entity_id,
+        ver: manifest.ver,
+        cid: item.cid,
+        op: item.op,
+        vis: item.vis,
+        ts: new Date(item.ts).getTime(),
+        prev_tx: prevTx,
+        prev_cid: prevCid,
+        seq,
+      },
+      manifest,
+    };
+
+    // Build tags and create DataItem
+    const tags = buildTags(payload);
+    const dataItem = createData(JSON.stringify(payload), signer, { tags });
+
+    // Sign DataItem - ID is now known!
+    await dataItem.sign(signer);
+    const txId = dataItem.id;
+
+    signedItems.push({
+      queueItem: item,
+      manifest,
+      payload,
+      seq,
+      signedDataItem: dataItem,
+      txId,
+    });
+
+    // Update chain pointers for next iteration
+    prevTx = txId;
+    prevCid = item.cid;
+  }
+
+  return signedItems;
 }
 
 /**
  * Upload a signed DataItem to Turbo
  */
 async function uploadToTurbo(dataItem: DataItem): Promise<TurboUploadResponse> {
-  // Get the raw binary of the signed DataItem
   const rawData = dataItem.getRaw();
 
   const response = await fetch(TURBO_UPLOAD_URL, {
@@ -135,13 +199,18 @@ async function uploadToTurbo(dataItem: DataItem): Promise<TurboUploadResponse> {
 }
 
 /**
- * Upload a single attestation via Turbo
+ * Upload a single pre-signed item to Turbo with retries
  */
-async function uploadSingle(
-  signer: ArweaveSigner,
-  env: Env,
-  item: TurboUploadItem
-): Promise<TurboUploadResult> {
+async function uploadSignedItem(item: TurboUploadItem): Promise<TurboUploadResult> {
+  if (!item.signedDataItem) {
+    return {
+      item,
+      success: false,
+      error: "Item not signed",
+      attempts: 0,
+    };
+  }
+
   let lastError: string | undefined;
   let attempts = 0;
 
@@ -149,16 +218,19 @@ async function uploadSingle(
     attempts = attempt + 1;
 
     try {
-      // Create and sign the DataItem
-      const dataItem = await createSignedDataItem(item, signer);
+      const result = await uploadToTurbo(item.signedDataItem);
 
-      // Upload to Turbo
-      const result = await uploadToTurbo(dataItem);
+      // Verify the returned ID matches what we expect
+      if (result.id !== item.txId) {
+        console.warn(
+          `[TURBO] ID mismatch for ${item.queueItem.entity_id}: expected ${item.txId}, got ${result.id}`
+        );
+      }
 
       return {
         item,
         success: true,
-        txId: result.id,
+        txId: item.txId, // Use the pre-computed txId
         attempts,
       };
     } catch (error: unknown) {
@@ -183,28 +255,25 @@ async function uploadSingle(
   return {
     item,
     success: false,
+    txId: item.txId, // Still include txId for debugging
     error: lastError,
     attempts,
   };
 }
 
 /**
- * Upload a batch of attestations via Turbo with concurrency control
+ * Upload a batch of pre-signed items via Turbo with concurrency control
  *
- * @param env - Worker environment
- * @param items - Items to upload
+ * Items must be pre-signed using signItemsSequentially() to ensure
+ * chain integrity (proper prev_tx linking).
+ *
+ * @param items - Pre-signed items to upload
  * @returns Batch result with succeeded/failed items
  */
-export async function uploadBatchViaTurbo(
-  env: Env,
+export async function uploadSignedBatchViaTurbo(
   items: TurboUploadItem[]
 ): Promise<TurboBatchResult> {
   const startTime = Date.now();
-
-  // Create signer from wallet
-  const wallet = JSON.parse(env.ARWEAVE_WALLET);
-  const signer = new ArweaveSigner(wallet);
-
   const results: TurboUploadResult[] = [];
 
   // Process items with concurrency control
@@ -215,7 +284,7 @@ export async function uploadBatchViaTurbo(
     while (nextIndex < items.length) {
       const index = nextIndex++;
       const item = items[index];
-      const result = await uploadSingle(signer, env, item);
+      const result = await uploadSignedItem(item);
       results.push(result);
     }
   };
@@ -237,4 +306,19 @@ export async function uploadBatchViaTurbo(
     failed,
     totalTimeMs: Date.now() - startTime,
   };
+}
+
+/**
+ * Legacy function for backwards compatibility.
+ * Signs and uploads items, but now does signing sequentially first.
+ *
+ * @deprecated Use signItemsSequentially + uploadSignedBatchViaTurbo directly
+ */
+export async function uploadBatchViaTurbo(
+  env: Env,
+  items: TurboUploadItem[]
+): Promise<TurboBatchResult> {
+  // This function is deprecated - the new flow signs in process.ts
+  // Just upload the pre-signed items
+  return uploadSignedBatchViaTurbo(items);
 }

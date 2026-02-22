@@ -19,7 +19,7 @@ import { checkWalletBalance } from "./balance/check";
 import { sendLowBalanceAlert } from "./balance/alerts";
 
 // Turbo imports (primary)
-import { uploadBatchViaTurbo, type TurboUploadItem } from "./turbo";
+import { signItemsSequentially, uploadSignedBatchViaTurbo, type TurboUploadItem } from "./turbo";
 
 // Bundle imports (fallback - deprecated)
 import { signDataItemBatch, extractDataItems } from "./chain/signDataItems";
@@ -112,12 +112,14 @@ async function processWithTurbo(
   // 3. Get current chain head
   const head = await getChainHead(env);
 
-  // 4. Prepare upload items with sequence numbers
-  const uploadItems = prepareUploadItems(itemsWithManifests, manifests, head);
+  // 4. Sign items sequentially (maintains chain integrity with proper prev_tx links)
+  const signStart = Date.now();
+  const signedItems = await signItemsSequentially(env, itemsWithManifests, manifests, head);
+  const signTime = Date.now() - signStart;
 
-  // 5. Upload via Turbo
+  // 5. Upload signed items in parallel via Turbo
   const uploadStart = Date.now();
-  const batchResult = await uploadBatchViaTurbo(env, uploadItems);
+  const batchResult = await uploadSignedBatchViaTurbo(signedItems);
   const uploadTime = Date.now() - uploadStart;
 
   // 6. Finalize results
@@ -141,7 +143,7 @@ async function processWithTurbo(
 
   console.log(
     `[ATTESTATION] Turbo batch: ${items.length} items, ${succeeded} succeeded, ${failed} failed in ${duration}ms ` +
-      `(upload=${uploadTime}ms, finalize=${finalizeTime}ms, rate=${(succeeded / (uploadTime / 1000)).toFixed(1)}/s)`
+      `(sign=${signTime}ms, upload=${uploadTime}ms, finalize=${finalizeTime}ms, rate=${(succeeded / (uploadTime / 1000)).toFixed(1)}/s)`
   );
 
   return {
@@ -152,53 +154,6 @@ async function processWithTurbo(
   };
 }
 
-/**
- * Prepare items for Turbo upload with proper sequencing
- */
-function prepareUploadItems(
-  items: QueueItem[],
-  manifests: Map<string, Manifest>,
-  head: ChainHead
-): TurboUploadItem[] {
-  let prevTx = head.tx_id;
-  let prevCid = head.cid;
-  let seq = head.seq;
-
-  return items.map((item) => {
-    seq++;
-    const manifest = manifests.get(item.cid)!;
-
-    const payload: AttestationPayload = {
-      attestation: {
-        pi: item.entity_id,
-        ver: manifest.ver,
-        cid: item.cid,
-        op: item.op,
-        vis: item.vis,
-        ts: new Date(item.ts).getTime(),
-        prev_tx: prevTx,
-        prev_cid: prevCid,
-        seq,
-      },
-      manifest,
-    };
-
-    const uploadItem: TurboUploadItem = {
-      queueItem: item,
-      manifest,
-      payload,
-      seq,
-    };
-
-    // Next item links to this one (will be updated after upload)
-    prevCid = item.cid;
-    // Note: We don't know txId yet, so we use null for items after the first
-    // This is OK because prev_tx is only used for chain verification
-    prevTx = null;
-
-    return uploadItem;
-  });
-}
 
 // KV write configuration (shared with bundle finalization)
 const KV_BATCH_SIZE = 50;
